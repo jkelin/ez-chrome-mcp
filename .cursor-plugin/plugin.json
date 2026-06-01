@@ -1,0 +1,12 @@
+{
+  "name": "ez-chrome-mcp",
+  "displayName": "EZ Chrome MCP",
+  "version": "0.1.0",
+  "description": "Debug running Chrome tabs from Cursor through a local MCP server.",
+  "author": {
+    "name": "EZ Chrome MCP"
+  },
+  "license": "MIT",
+  "keywords": ["cursor", "plugin", "mcp", "chrome", "debugging", "console"],
+  "logo": "assets/logo.svg"
+}

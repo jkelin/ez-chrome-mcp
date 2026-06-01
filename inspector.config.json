@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ez-chrome-mcp": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["run", "index.ts"],
+      "env": {
+        "CHROME_DEBUGGING_URLS": ""
+      }
+    }
+  }
+}

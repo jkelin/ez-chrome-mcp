@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EZ Chrome MCP Fixture</title>
+  </head>
+  <body>
+    <h1>EZ Chrome MCP Fixture</h1>
+    <script>
+      globalThis.fixtureState = { count: 0 };
+
+      globalThis.logRepeated = function logRepeated() {
+        for (let i = 0; i < 3; i += 1) console.warn("fixture repeat");
+        return "logged repeated warnings";
+      };
+
+      globalThis.logLevels = function logLevels() {
+        console.log("fixture log");
+        console.info("fixture info");
+        console.error("fixture error");
+        return { ok: true, count: globalThis.fixtureState.count };
+      };
+
+      globalThis.throwSync = function throwSync() {
+        throw new Error("fixture sync failure");
+      };
+
+      globalThis.throwAsync = function throwAsync() {
+        setTimeout(() => {
+          throw new Error("fixture async failure");
+        }, 10);
+        return "scheduled async failure";
+      };
+
+      globalThis.incrementState = function incrementState() {
+        globalThis.fixtureState.count += 1;
+        console.log("fixture count", globalThis.fixtureState.count);
+        return globalThis.fixtureState.count;
+      };
+
+      globalThis.promiseValue = async function promiseValue() {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        console.log("fixture promise resolved");
+        return { async: true };
+      };
+    </script>
+  </body>
+</html>

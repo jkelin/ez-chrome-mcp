@@ -3,14 +3,26 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "scripts": {
+    "dev": "bun run concurrently.config.ts",
+    "watch": "bun --watch index.ts",
+    "start": "bun run index.ts",
+    "inspector": "mcp-inspector --config inspector.config.json --server ez-chrome-mcp",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:unit": "bun test test/unit",
+    "test:integration": "bun test test/integration"
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.21.2",
+    "@types/bun": "latest",
+    "concurrently": "^9.2.1",
+    "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
     "@modelcontextprotocol/server": "^2.0.0-alpha.2",
+    "playwright": "^1.60.0",
     "zod": "^4.4.3"
   }
 }

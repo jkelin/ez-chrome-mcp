@@ -4,13 +4,13 @@
 
 ## Features
 
-| Tool | Purpose |
-|------|---------|
-| `overview` | List debuggable tabs across configured Chrome remote-debugging endpoints |
-| `open-tab` | Open a URL on an existing endpoint, or launch Chrome with remote debugging |
-| `logs` | Stream grouped console, exception, and CDP log output with cursor-based paging |
-| `eval` | Run JavaScript in a tab and return the result plus recent logs (can mutate the page) |
-| `screenshot` | Capture a PNG of the current tab viewport |
+| Tool         | Purpose                                                                              |
+| ------------ | ------------------------------------------------------------------------------------ |
+| `overview`   | List debuggable tabs across configured Chrome remote-debugging endpoints             |
+| `open-tab`   | Open a URL on an existing endpoint, or launch Chrome with remote debugging           |
+| `logs`       | Stream grouped console, exception, and CDP log output with cursor-based paging       |
+| `eval`       | Run JavaScript in a tab and return the result plus recent logs (can mutate the page) |
+| `screenshot` | Capture a PNG of the current tab viewport                                            |
 
 The server prefers **read-only inspection** (`overview` → `logs` → `screenshot`) before `eval`, because evaluation can change application state.
 
@@ -64,10 +64,7 @@ Add to `.cursor/mcp.json`, Claude Desktop, or another MCP config:
   "mcpServers": {
     "ez-chrome-mcp": {
       "command": "bunx",
-      "args": ["ez-chrome-mcp"],
-      "env": {
-        "CHROME_DEBUGGING_URLS": "http://127.0.0.1:9222"
-      }
+      "args": ["ez-chrome-mcp"]
     }
   }
 }
@@ -93,17 +90,17 @@ See [`mcp.json`](mcp.json) in this repo for a minimal example.
 
 ## Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CHROME_DEBUGGING_URLS` | (none) | Comma/newline-separated debugging origins or tab WebSocket URLs (in addition to `127.0.0.1:9222`) |
-| `CHROME_DEBUGGING_URL` | (none) | Alias for a single endpoint |
-| `EZ_CHROME_MCP_LAUNCH_DEBUGGING_PORT` | `9222` | Port when launching Chrome from `open-tab` |
-| `EZ_CHROME_MCP_DEFAULT_QUIET_MS` | `250` | Default log quiet period after `eval` |
-| `EZ_CHROME_MCP_MAX_QUIET_MS` | `5000` | Maximum quiet period for `eval` |
-| `EZ_CHROME_MCP_HARD_WAIT_CAP_MS` | `10000` | Upper bound on waits |
-| `EZ_CHROME_MCP_LOG_BUFFER_SIZE` | `5000` | Retained raw log entries per tab |
-| `EZ_CHROME_MCP_DEFAULT_LOG_LIMIT` | `200` | Default `logs` / `eval` log limit |
-| `EZ_CHROME_MCP_MAX_LOG_LIMIT` | `1000` | Maximum log limit per request |
+| Variable                              | Default | Description                                                                                       |
+| ------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `CHROME_DEBUGGING_URLS`               | (none)  | Comma/newline-separated debugging origins or tab WebSocket URLs (in addition to `127.0.0.1:9222`) |
+| `CHROME_DEBUGGING_URL`                | (none)  | Alias for a single endpoint                                                                       |
+| `EZ_CHROME_MCP_LAUNCH_DEBUGGING_PORT` | `9222`  | Port when launching Chrome from `open-tab`                                                        |
+| `EZ_CHROME_MCP_DEFAULT_QUIET_MS`      | `250`   | Default log quiet period after `eval`                                                             |
+| `EZ_CHROME_MCP_MAX_QUIET_MS`          | `5000`  | Maximum quiet period for `eval`                                                                   |
+| `EZ_CHROME_MCP_HARD_WAIT_CAP_MS`      | `10000` | Upper bound on waits                                                                              |
+| `EZ_CHROME_MCP_LOG_BUFFER_SIZE`       | `5000`  | Retained raw log entries per tab                                                                  |
+| `EZ_CHROME_MCP_DEFAULT_LOG_LIMIT`     | `200`   | Default `logs` / `eval` log limit                                                                 |
+| `EZ_CHROME_MCP_MAX_LOG_LIMIT`         | `1000`  | Maximum log limit per request                                                                     |
 
 ## Agent skills
 
@@ -123,11 +120,11 @@ bun run inspector   # inspector only
 
 ### Scripts
 
-| Script | Description |
-|--------|-------------|
-| `bun run start` | Run the stdio MCP server |
-| `bun run typecheck` | TypeScript check |
-| `bun run test` | Unit and integration tests |
+| Script                     | Description                        |
+| -------------------------- | ---------------------------------- |
+| `bun run start`            | Run the stdio MCP server           |
+| `bun run typecheck`        | TypeScript check                   |
+| `bun run test`             | Unit and integration tests         |
 | `bun run test:integration` | Headless browser integration tests |
 
 ## Publishing

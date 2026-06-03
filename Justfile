@@ -17,3 +17,6 @@ test-integration:
     bun run test:integration
 
 check: typecheck test
+
+publish:
+    bun publish

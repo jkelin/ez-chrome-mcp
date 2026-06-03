@@ -71,6 +71,11 @@ export type EvalOutcome = {
   isException: boolean;
 };
 
+export type ScreenshotOutcome = {
+  data: string;
+  mimeType: "image/png";
+};
+
 export class CdpClient {
   private socket?: WebSocket;
   private nextRequestId = 1;
@@ -133,6 +138,20 @@ export class CdpClient {
     return {
       value: formatRemoteObject(response.result),
       isException: false,
+    };
+  }
+
+  async screenshot(): Promise<ScreenshotOutcome> {
+    await this.connect();
+
+    const response = await this.send<{ data: string }>("Page.captureScreenshot", {
+      format: "png",
+      fromSurface: true,
+    });
+
+    return {
+      data: response.data,
+      mimeType: "image/png",
     };
   }
 

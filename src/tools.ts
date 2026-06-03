@@ -19,7 +19,11 @@ const evalInputSchema = logsInputSchema.extend({
     .describe("Quiet period for log debounce after evaluation settles."),
 });
 
-const openTapInputSchema = z.object({
+const screenshotInputSchema = z.object({
+  tabId: z.string().min(1).describe("Chrome target ID returned by overview."),
+});
+
+const openTabInputSchema = z.object({
   url: z.string().min(1).optional().describe("URL to open. Defaults to about:blank."),
   startNewChromeInstanceIfNotRunning: z
     .boolean()
@@ -63,12 +67,12 @@ export function registerChromeTools(server: McpServer, chrome: ChromeDebugServic
   );
 
   server.registerTool(
-    "OpenTap",
+    "open-tab",
     {
       title: "Open Chrome Tab",
       description:
         "Open a URL in a Chrome tab on an existing debugging endpoint, or launch Chrome with remote debugging if allowed.",
-      inputSchema: openTapInputSchema,
+      inputSchema: openTabInputSchema,
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -77,7 +81,7 @@ export function registerChromeTools(server: McpServer, chrome: ChromeDebugServic
       },
     },
     async (args): Promise<CallToolResult> => {
-      const result = await chrome.openTap(args);
+      const result = await chrome.openTab(args);
 
       return {
         content: [{ type: "text", text: result.text }],
@@ -121,6 +125,52 @@ export function registerChromeTools(server: McpServer, chrome: ChromeDebugServic
       },
     },
     async (args): Promise<CallToolResult> => toTextResult(await chrome.eval(args)),
+  );
+
+  server.registerTool(
+    "screenshot",
+    {
+      title: "Capture Chrome Tab Screenshot",
+      description:
+        "Capture a PNG screenshot for a tab ID from overview. Use this to inspect live UI layout, visual regressions, and overlapping elements.",
+      inputSchema: screenshotInputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async (args): Promise<CallToolResult> => {
+      const result = await chrome.screenshot(args);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: [
+              "# Chrome Tab Screenshot",
+              "",
+              `Tab ID: \`${result.tab.tabId}\``,
+              `Current URL: ${result.tab.url || "(unknown)"}`,
+              `MIME type: ${result.mimeType}`,
+              `Size: ${result.sizeBytes} bytes`,
+            ].join("\n"),
+          },
+          {
+            type: "image",
+            data: result.data,
+            mimeType: result.mimeType,
+          },
+        ],
+        structuredContent: {
+          tabId: result.tab.tabId,
+          url: result.tab.url,
+          mimeType: result.mimeType,
+          sizeBytes: result.sizeBytes,
+        },
+      };
+    },
   );
 }
 

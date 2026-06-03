@@ -1,4 +1,5 @@
 import { McpServer, StdioServerTransport } from "@modelcontextprotocol/server";
+import packageJson from "../package.json" with { type: "json" };
 import { ChromeDebugService } from "./chrome/service";
 import { readConfig, type ChromeMcpConfig } from "./config";
 import { registerChromeTools } from "./tools";
@@ -9,10 +10,10 @@ export function createChromeMcpServer(config: ChromeMcpConfig = readConfig()): {
 } {
   const chrome = new ChromeDebugService(config);
   const server = new McpServer(
-    { name: "ez-chrome-mcp", version: "0.1.0" },
+    { name: "ez-chrome-mcp", version: packageJson.version },
     {
       instructions:
-        "Use overview to find a Chrome tab ID before logs or eval. Prefer logs before eval. Eval runs arbitrary JavaScript in the user's browser tab and can mutate page state.",
+        "Use overview to find a Chrome tab ID before logs, eval, or screenshot. Prefer logs and screenshot before eval. Eval runs arbitrary JavaScript in the user's browser tab and can mutate page state.",
     },
   );
 

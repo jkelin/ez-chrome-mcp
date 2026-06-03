@@ -9,7 +9,7 @@ type JsonRpcResponse = {
 };
 
 export type McpToolResult = {
-  content: Array<{ type: "text"; text: string }>;
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
   structuredContent?: unknown;
   isError?: boolean;
 };

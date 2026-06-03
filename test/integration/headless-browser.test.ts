@@ -10,12 +10,19 @@ type OverviewContent = {
   }>;
 };
 
-type OpenTapContent = {
+type OpenTabContent = {
   tab: {
     tabId: string;
     url: string;
   };
   launchedChrome: boolean;
+};
+
+type ScreenshotContent = {
+  tabId: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
 };
 
 describe("headless Chrome MCP integration", () => {
@@ -96,17 +103,31 @@ describe("headless Chrome MCP integration", () => {
       expect(asyncThrown).toContain("scheduled async failure");
       expect(asyncThrown).toContain("fixture async failure");
 
+      const screenshot = await client.callTool("screenshot", {
+        tabId: tab!.tabId,
+      });
+      const screenshotContent = screenshot.structuredContent as ScreenshotContent;
+      const image = screenshot.content.find((content) => content.type === "image");
+
+      expect(textOf(screenshot)).toContain("Chrome Tab Screenshot");
+      expect(screenshotContent.tabId).toBe(tab!.tabId);
+      expect(screenshotContent.url).toBe(harness.pageUrl);
+      expect(screenshotContent.mimeType).toBe("image/png");
+      expect(screenshotContent.sizeBytes).toBeGreaterThan(0);
+      expect(image?.mimeType).toBe("image/png");
+      expect(image?.data).toStartWith("iVBORw0KGgo");
+
       await harness.closeTab(harness.pageUrl);
       const afterClose = await client.callTool("overview", {});
       const afterCloseStructured = afterClose.structuredContent as OverviewContent;
 
       expect(afterCloseStructured.tabs.every((candidate) => candidate.url !== harness.pageUrl)).toBe(true);
 
-      const opened = await client.callTool("OpenTap", {
+      const opened = await client.callTool("open-tab", {
         url: harness.pageUrl,
         startNewChromeInstanceIfNotRunning: false,
       });
-      const openedContent = opened.structuredContent as OpenTapContent;
+      const openedContent = opened.structuredContent as OpenTabContent;
 
       expect(textOf(opened)).toContain("Opened a tab on an existing Chrome debugging endpoint.");
       expect(openedContent.launchedChrome).toBe(false);
@@ -120,7 +141,10 @@ describe("headless Chrome MCP integration", () => {
 });
 
 function textOf(result: Awaited<ReturnType<McpProcessClient["callTool"]>>): string {
-  return result.content.map((content) => content.text).join("\n");
+  return result.content
+    .filter((content) => content.type === "text")
+    .map((content) => content.text)
+    .join("\n");
 }
 
 function rawLogIdsFrom(markdown: string): string[] {

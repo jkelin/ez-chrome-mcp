@@ -3,6 +3,10 @@
     "chrome-devtools": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "ez-chrome-mcp": {
+      "command": "bun",
+      "args": ["run", "index.ts"]
     }
   }
 }

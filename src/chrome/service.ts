@@ -1,6 +1,6 @@
 import type { ChromeMcpConfig } from "../config";
 import { createShortIdGenerator } from "../ids";
-import { CdpClient, type EvalOutcome } from "./cdp-client";
+import { CdpClient, type EvalOutcome, type ScreenshotOutcome } from "./cdp-client";
 import {
   browserEndpointFromWebSocket,
   discoverBrowserTabs,
@@ -31,9 +31,18 @@ export type EvalRequest = LogsRequest & {
   waitMs?: number;
 };
 
-export type OpenTapRequest = {
+export type OpenTabRequest = {
   url?: string;
   startNewChromeInstanceIfNotRunning?: boolean;
+};
+
+export type ScreenshotRequest = {
+  tabId: string;
+};
+
+export type ScreenshotResult = ScreenshotOutcome & {
+  tab: DiscoveredTab;
+  sizeBytes: number;
 };
 
 export class ChromeDebugService {
@@ -91,7 +100,7 @@ export class ChromeDebugService {
     return this.renderLogs(state, request, outcome);
   }
 
-  async openTap(request: OpenTapRequest): Promise<{ text: string; tab: DiscoveredTab; launchedChrome: boolean }> {
+  async openTab(request: OpenTabRequest): Promise<{ text: string; tab: DiscoveredTab; launchedChrome: boolean }> {
     const url = request.url?.trim() || "about:blank";
     const existingEndpoint = await this.findReachableBrowserEndpoint();
 
@@ -126,6 +135,17 @@ export class ChromeDebugService {
       tab: publicTab,
       launchedChrome: true,
       text: renderOpenedTab(publicTab, true),
+    };
+  }
+
+  async screenshot(request: ScreenshotRequest): Promise<ScreenshotResult> {
+    const state = await this.ensureAttached(request.tabId);
+    const screenshot = await state.client!.screenshot();
+
+    return {
+      ...screenshot,
+      tab: state.tab,
+      sizeBytes: base64SizeBytes(screenshot.data),
     };
   }
 
@@ -278,7 +298,7 @@ export class ChromeDebugService {
 
 function renderOpenedTab(tab: DiscoveredTab, launchedChrome: boolean): string {
   return [
-    "# OpenTap",
+    "# open-tab",
     "",
     launchedChrome ? "Started a new Chrome instance with remote debugging." : "Opened a tab on an existing Chrome debugging endpoint.",
     "",
@@ -300,5 +320,10 @@ function parseJsonObject(value: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function base64SizeBytes(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.floor((value.length * 3) / 4) - padding;
 }
 

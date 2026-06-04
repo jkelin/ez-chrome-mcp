@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "ez-chrome-mcp": {
-      "command": "bun",
-      "args": ["run", "index.ts"]
-    }
-  }
-}

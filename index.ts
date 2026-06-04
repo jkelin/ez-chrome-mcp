@@ -1,3 +1,4 @@
-import { runStdioServer } from "./src/server";
+import { installPlaywrightChromium, runStdioServer } from "./src/server";
 
+await installPlaywrightChromium();
 await runStdioServer();

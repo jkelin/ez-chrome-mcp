@@ -4,6 +4,10 @@ import { ChromeDebugService } from "./chrome/service";
 import { readConfig, type ChromeMcpConfig } from "./config";
 import { registerChromeTools } from "./tools";
 
+export async function installPlaywrightChromium(): Promise<void> {
+  await Bun.$`bunx playwright install --with-deps chromium`;
+}
+
 export function createChromeMcpServer(config: ChromeMcpConfig = readConfig()): {
   server: McpServer;
   chrome: ChromeDebugService;
@@ -33,6 +37,8 @@ export async function runStdioServer(
     await server.close();
     process.exit(0);
   });
+
+  console.log("Server started");
 
   await server.connect(transport);
 }

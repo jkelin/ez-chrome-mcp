@@ -38,7 +38,5 @@ export async function runStdioServer(
     process.exit(0);
   });
 
-  console.log("Server started");
-
   await server.connect(transport);
 }

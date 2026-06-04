@@ -4,9 +4,25 @@ import type { ChromeDebugService } from "./chrome/service";
 
 const logsInputSchema = z.object({
   tabId: z.string().min(1).describe("Chrome target ID returned by overview."),
-  limit: z.number().int().positive().optional().describe("Maximum raw log entries to render before grouping."),
-  afterLogId: z.string().min(1).optional().describe("Return logs after this raw log ID."),
-  beforeLogId: z.string().min(1).optional().describe("Return logs before this raw log ID."),
+  limit: z.number().int().positive().optional().describe("Maximum raw activity entries to render before grouping."),
+  afterLogId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Return logs starting at this raw activity/log ID, inclusive. Prefer passing the latest visible raw log ID from the previous logs/eval response to keep context small.",
+    ),
+  beforeLogId: z.string().min(1).optional().describe("Return logs before this raw activity/log ID."),
+});
+
+const logDetailInputSchema = z.object({
+  tabId: z.string().min(1).describe("Chrome target ID returned by overview."),
+  logId: z.string().min(1).describe("Raw activity/log ID returned by logs or eval."),
+  absolute_path: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Optional absolute file path where the full uncompressed JSON detail should be written."),
 });
 
 const evalInputSchema = logsInputSchema.extend({
@@ -98,7 +114,7 @@ export function registerChromeTools(server: McpServer, chrome: ChromeDebugServic
     {
       title: "Chrome Tab Logs",
       description:
-        "Return current URL and grouped retained logs for a tab ID from overview. Use afterLogId/beforeLogId to page by raw log IDs.",
+        "Return current URL and compact grouped retained activity (console, navigations, XHR/fetch) for a tab ID from overview. HTTP request rows only show summaries and correlation IDs; use log_detail for headers and bodies. Always prefer afterLogId when a prior raw log ID is available; afterLogId is inclusive so the anchor log remains visible. Use beforeLogId for older history.",
       inputSchema: logsInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -111,11 +127,34 @@ export function registerChromeTools(server: McpServer, chrome: ChromeDebugServic
   );
 
   server.registerTool(
+    "log_detail",
+    {
+      title: "Chrome Log Detail",
+      description:
+        "Return pretty JSON detail for a raw activity/log ID, including HTTP request/response headers and bodies when captured. The response is capped at 64 KiB; optionally write the full uncompressed JSON to absolute_path.",
+      inputSchema: logDetailInputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async (args): Promise<CallToolResult> => {
+      const result = await chrome.logDetail(args);
+      return {
+        content: [{ type: "text", text: result.text }],
+        structuredContent: result.structuredContent,
+      };
+    },
+  );
+
+  server.registerTool(
     "eval",
     {
       title: "Evaluate JavaScript In Chrome Tab",
       description:
-        "Evaluate JavaScript in a tab ID from overview, wait for log quiet, then return the eval result and grouped logs. This can mutate the page.",
+        "Evaluate JavaScript in a tab ID from overview, wait for activity quiet, then return the eval result and compact grouped activity. Always pass afterLogId when you have a prior raw log ID so only the inclusive anchor and new activity are returned. HTTP headers and bodies are available through log_detail. This can mutate the page.",
       inputSchema: evalInputSchema,
       annotations: {
         readOnlyHint: false,

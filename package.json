@@ -1,6 +1,6 @@
 {
   "name": "ez-chrome-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for debugging live Chrome tabs — list targets, read console logs, evaluate JavaScript, and capture screenshots over CDP.",
   "type": "module",
   "license": "MIT",

@@ -1,4 +1,10 @@
-import { LogBuffer, type LogEntry, type LogLevel } from "./log-buffer";
+import {
+  ActivityTimeline,
+  normalizeHeaderMap,
+  shouldStoreBodyContent,
+  type ActivityLevel,
+  type ActivityPayload,
+} from "./activity-timeline";
 
 type CdpResponse<T> = {
   id: number;
@@ -66,6 +72,47 @@ type LogEntryAddedParams = {
   };
 };
 
+type RequestWillBeSentParams = {
+  requestId: string;
+  request: {
+    url: string;
+    method: string;
+    headers?: Record<string, string> | Array<{ name: string; value: string }>;
+    postData?: string;
+    hasPostData?: boolean;
+  };
+  type?: string;
+};
+
+type ResponseReceivedParams = {
+  requestId: string;
+  response: {
+    url: string;
+    status: number;
+    mimeType?: string;
+    headers?: Record<string, string> | Array<{ name: string; value: string }>;
+  };
+};
+
+type LoadingFinishedParams = {
+  requestId: string;
+  encodedDataLength?: number;
+};
+
+type FrameNavigatedParams = {
+  frame: {
+    id: string;
+    parentId?: string;
+    url: string;
+    name?: string;
+  };
+};
+
+type NavigatedWithinDocumentParams = {
+  frameId: string;
+  url: string;
+};
+
 export type EvalOutcome = {
   value: string;
   isException: boolean;
@@ -76,15 +123,37 @@ export type ScreenshotOutcome = {
   mimeType: "image/png";
 };
 
+export type CdpNetworkBufferConfig = {
+  maxTotalBufferSize: number;
+  maxPostDataSize: number;
+};
+
+type TrackedNetworkRequest = {
+  correlationId: string;
+  method: string;
+  url: string;
+  resourceType: string;
+  requestHeaders: Record<string, string>;
+  requestBody?: string;
+  requestBodySize?: number;
+  status?: number;
+  mimeType?: string;
+  responseHeaders?: Record<string, string>;
+  responseBodySize?: number;
+};
+
 export class CdpClient {
   private socket?: WebSocket;
   private nextRequestId = 1;
   private pending = new Map<number, PendingRequest>();
   private connected?: Promise<void>;
+  private mainFrameId?: string;
+  private readonly networkRequests = new Map<string, TrackedNetworkRequest>();
 
   constructor(
     private readonly webSocketDebuggerUrl: string,
-    private readonly logBuffer: LogBuffer,
+    private readonly timeline: ActivityTimeline,
+    private readonly networkBuffer: CdpNetworkBufferConfig,
   ) {}
 
   async connect(): Promise<void> {
@@ -103,7 +172,15 @@ export class CdpClient {
     });
 
     await this.connected;
-    await Promise.all([this.send("Runtime.enable"), this.send("Log.enable")]);
+    await Promise.all([
+      this.send("Runtime.enable"),
+      this.send("Log.enable"),
+      this.send("Page.enable"),
+      this.send("Network.enable", {
+        maxTotalBufferSize: this.networkBuffer.maxTotalBufferSize,
+        maxPostDataSize: this.networkBuffer.maxPostDataSize,
+      }),
+    ]);
   }
 
   async close(): Promise<void> {
@@ -206,21 +283,166 @@ export class CdpClient {
     }
 
     if (message.method && message.params) {
-      this.handleEvent(message.method, message.params);
+      void this.handleEvent(message.method, message.params);
     }
   }
 
-  private handleEvent(method: string, params: unknown): void {
+  private async handleEvent(method: string, params: unknown): Promise<void> {
     switch (method) {
       case "Runtime.consoleAPICalled":
-        this.logBuffer.add(normalizeConsoleApiCalled(params as ConsoleApiCalledParams));
+        this.timeline.add(normalizeConsoleApiCalled(params as ConsoleApiCalledParams));
         break;
       case "Runtime.exceptionThrown":
-        this.logBuffer.add(normalizeExceptionThrown(params as ExceptionThrownParams));
+        this.timeline.add(normalizeExceptionThrown(params as ExceptionThrownParams));
         break;
       case "Log.entryAdded":
-        this.logBuffer.add(normalizeLogEntryAdded(params as LogEntryAddedParams));
+        this.timeline.add(normalizeLogEntryAdded(params as LogEntryAddedParams));
         break;
+      case "Page.frameNavigated":
+        this.handleFrameNavigated(params as FrameNavigatedParams);
+        break;
+      case "Page.navigatedWithinDocument":
+        this.handleNavigatedWithinDocument(params as NavigatedWithinDocumentParams);
+        break;
+      case "Network.requestWillBeSent":
+        this.handleRequestWillBeSent(params as RequestWillBeSentParams);
+        break;
+      case "Network.responseReceived":
+        this.handleResponseReceived(params as ResponseReceivedParams);
+        break;
+      case "Network.loadingFinished":
+        await this.handleLoadingFinished(params as LoadingFinishedParams);
+        break;
+    }
+  }
+
+  private handleFrameNavigated(params: FrameNavigatedParams): void {
+    const frame = params.frame;
+    if (frame.parentId) {
+      return;
+    }
+
+    this.mainFrameId = frame.id;
+    this.timeline.add({
+      kind: "navigation",
+      level: "info",
+      text: `Document navigated to ${frame.url}`,
+      payload: {
+        url: frame.url,
+        navigationType: "document",
+      },
+    });
+  }
+
+  private handleNavigatedWithinDocument(params: NavigatedWithinDocumentParams): void {
+    if (this.mainFrameId && params.frameId !== this.mainFrameId) {
+      return;
+    }
+
+    this.timeline.add({
+      kind: "navigation",
+      level: "info",
+      text: `Same-document navigation to ${params.url}`,
+      payload: {
+        url: params.url,
+        navigationType: "sameDocument",
+      },
+    });
+  }
+
+  private handleRequestWillBeSent(params: RequestWillBeSentParams): void {
+    const resourceType = params.type ?? "";
+    if (!isXhrOrFetch(resourceType)) {
+      return;
+    }
+
+    const correlationId = this.timeline.createCorrelationId();
+    const requestHeaders = normalizeHeaderMap(params.request.headers);
+    const requestBody = params.request.postData;
+    const tracked: TrackedNetworkRequest = {
+      correlationId,
+      method: params.request.method,
+      url: params.request.url,
+      resourceType,
+      requestHeaders,
+      requestBody,
+      requestBodySize: requestBody ? byteLength(requestBody) : params.request.hasPostData ? undefined : 0,
+    };
+
+    this.networkRequests.set(params.requestId, tracked);
+    this.timeline.add({
+      kind: "requestStart",
+      level: "info",
+      text: `-> ${tracked.method} ${tracked.url}`,
+      correlationId,
+      payload: buildRequestStartPayload(tracked),
+    });
+  }
+
+  private handleResponseReceived(params: ResponseReceivedParams): void {
+    const tracked = this.networkRequests.get(params.requestId);
+    if (!tracked) {
+      return;
+    }
+
+    tracked.status = params.response.status;
+    tracked.mimeType = params.response.mimeType;
+    tracked.responseHeaders = normalizeHeaderMap(params.response.headers);
+  }
+
+  private async handleLoadingFinished(params: LoadingFinishedParams): Promise<void> {
+    const tracked = this.networkRequests.get(params.requestId);
+    if (!tracked) {
+      return;
+    }
+
+    tracked.responseBodySize = params.encodedDataLength;
+
+    if (tracked.requestBody === undefined) {
+      const requestPostData = await this.fetchRequestPostData(params.requestId);
+      if (requestPostData) {
+        tracked.requestBody = requestPostData.postData;
+        tracked.requestBodySize = byteLength(requestPostData.postData);
+      }
+    }
+
+    const responseBody = await this.fetchResponseBody(params.requestId);
+    const finishPayload = buildRequestFinishPayload(tracked, responseBody);
+
+    this.timeline.add({
+      kind: "requestFinish",
+      level: tracked.status && tracked.status >= 400 ? "error" : "info",
+      text: `<- ${tracked.status ?? "?"} ${tracked.method} ${tracked.url}`,
+      correlationId: tracked.correlationId,
+      payload: finishPayload,
+    });
+
+    this.networkRequests.delete(params.requestId);
+  }
+
+  private async fetchRequestPostData(requestId: string): Promise<{ postData: string } | undefined> {
+    try {
+      const result = await this.send<{ postData?: string }>("Network.getRequestPostData", { requestId });
+      if (!result.postData) {
+        return undefined;
+      }
+
+      return { postData: result.postData };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async fetchResponseBody(
+    requestId: string,
+  ): Promise<{ body: string; base64Encoded: boolean } | undefined> {
+    try {
+      const result = await this.send<{ body: string; base64Encoded: boolean }>("Network.getResponseBody", {
+        requestId,
+      });
+      return result;
+    } catch {
+      return undefined;
     }
   }
 
@@ -233,10 +455,58 @@ export class CdpClient {
   }
 }
 
-function normalizeConsoleApiCalled(params: ConsoleApiCalledParams): Omit<LogEntry, "id"> {
+function buildRequestStartPayload(tracked: TrackedNetworkRequest): ActivityPayload {
+  const storeRequestBody = shouldStoreBodyContent(undefined, tracked.requestBody);
+
+  return {
+    method: tracked.method,
+    url: tracked.url,
+    resourceType: tracked.resourceType,
+    requestHeaders: tracked.requestHeaders,
+    requestBody: storeRequestBody ? tracked.requestBody : undefined,
+    requestBodySize: tracked.requestBodySize ?? (tracked.requestBody ? byteLength(tracked.requestBody) : undefined),
+    requestBodyStored: storeRequestBody,
+    responseBodyStored: false,
+  };
+}
+
+function buildRequestFinishPayload(
+  tracked: TrackedNetworkRequest,
+  responseBody: { body: string; base64Encoded: boolean } | undefined,
+): ActivityPayload {
+  const storeRequestBody = shouldStoreBodyContent(undefined, tracked.requestBody);
+  const storeResponseBody = shouldStoreBodyContent(
+    tracked.mimeType,
+    responseBody?.body,
+    responseBody?.base64Encoded,
+  );
+
+  return {
+    method: tracked.method,
+    url: tracked.url,
+    status: tracked.status,
+    resourceType: tracked.resourceType,
+    requestHeaders: tracked.requestHeaders,
+    responseHeaders: tracked.responseHeaders,
+    requestBody: storeRequestBody ? tracked.requestBody : undefined,
+    requestBodySize: tracked.requestBodySize ?? (tracked.requestBody ? byteLength(tracked.requestBody) : undefined),
+    requestBodyStored: storeRequestBody,
+    responseBody: storeResponseBody ? responseBody?.body : undefined,
+    responseBodySize: tracked.responseBodySize ?? (responseBody?.body ? byteLength(responseBody.body) : undefined),
+    responseBodyStored: storeResponseBody,
+  };
+}
+
+function isXhrOrFetch(resourceType: string): boolean {
+  const normalized = resourceType.toLowerCase();
+  return normalized === "xhr" || normalized === "fetch";
+}
+
+function normalizeConsoleApiCalled(params: ConsoleApiCalledParams) {
   const frame = params.stackTrace?.callFrames?.[0];
 
   return {
+    kind: "console" as const,
     level: normalizeLevel(params.type),
     text: (params.args ?? []).map(formatRemoteObject).join(" "),
     timestamp: timestampFromCdp(params.timestamp),
@@ -244,9 +514,10 @@ function normalizeConsoleApiCalled(params: ConsoleApiCalledParams): Omit<LogEntr
   };
 }
 
-function normalizeExceptionThrown(params: ExceptionThrownParams): Omit<LogEntry, "id"> {
+function normalizeExceptionThrown(params: ExceptionThrownParams) {
   return {
-    level: "error",
+    kind: "exception" as const,
+    level: "error" as const,
     text: formatExceptionDetails(params.exceptionDetails),
     timestamp: timestampFromCdp(params.timestamp),
     source: formatSource(
@@ -257,8 +528,9 @@ function normalizeExceptionThrown(params: ExceptionThrownParams): Omit<LogEntry,
   };
 }
 
-function normalizeLogEntryAdded(params: LogEntryAddedParams): Omit<LogEntry, "id"> {
+function normalizeLogEntryAdded(params: LogEntryAddedParams) {
   return {
+    kind: "browserLog" as const,
     level: normalizeLevel(params.entry.level ?? "log"),
     text: params.entry.text ?? "",
     timestamp: timestampFromCdp(params.entry.timestamp),
@@ -266,7 +538,7 @@ function normalizeLogEntryAdded(params: LogEntryAddedParams): Omit<LogEntry, "id
   };
 }
 
-function normalizeLevel(level: string): LogLevel {
+function normalizeLevel(level: string): ActivityLevel {
   switch (level) {
     case "debug":
       return "debug";
@@ -327,4 +599,8 @@ function formatSource(url: string | undefined, lineNumber: number | undefined, c
   const column = columnNumber === undefined ? undefined : columnNumber + 1;
 
   return [url, line, column].filter((part) => part !== undefined).join(":");
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
 }

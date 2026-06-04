@@ -1,11 +1,8 @@
 {
   "mcpServers": {
     "ez-chrome-mcp": {
-      "command": "bun",
-      "args": ["run", "index.ts"],
-      "env": {
-        "CHROME_DEBUGGING_URLS": "${CHROME_DEBUGGING_URLS}"
-      }
+      "command": "bunx",
+      "args": ["ez-chrome-mcp"]
     }
   }
 }

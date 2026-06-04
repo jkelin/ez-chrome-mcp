@@ -43,6 +43,55 @@
         console.log("fixture promise resolved");
         return { async: true };
       };
+
+      globalThis.fetchJsonApi = async function fetchJsonApi() {
+        const payload = { client: "fetch", value: 7 };
+        const response = await fetch("/api/echo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json();
+        console.log("fetch json done", body.received?.client);
+        return body;
+      };
+
+      globalThis.xhrJsonApi = function xhrJsonApi() {
+        return new Promise((resolve, reject) => {
+          const payload = { client: "xhr", value: 9 };
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/api/echo");
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.onload = () => {
+            console.log("xhr json done");
+            resolve(JSON.parse(xhr.responseText));
+          };
+          xhr.onerror = () => reject(new Error("xhr failed"));
+          xhr.send(JSON.stringify(payload));
+        });
+      };
+
+      globalThis.fetchBinaryApi = async function fetchBinaryApi() {
+        const response = await fetch("/api/binary");
+        console.log("fetch binary", response.headers.get("content-type"));
+        return {
+          status: response.status,
+          type: response.headers.get("content-type"),
+        };
+      };
+
+      globalThis.fetchLargeJsonApi = async function fetchLargeJsonApi() {
+        const response = await fetch("/api/large-json");
+        const body = await response.json();
+        console.log("fetch large json", body.message);
+        return body;
+      };
+
+      globalThis.navigateSpa = function navigateSpa() {
+        history.pushState({}, "", "/sample-page.html#spa");
+        console.log("spa navigated");
+        return location.href;
+      };
     </script>
   </body>
 </html>

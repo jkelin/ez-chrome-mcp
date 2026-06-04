@@ -7,6 +7,8 @@ export type ChromeMcpConfig = {
   logBufferSize: number;
   defaultLogLimit: number;
   maxLogLimit: number;
+  cdpMaxTotalBufferSize: number;
+  cdpMaxPostDataSize: number;
 };
 
 const DEFAULT_DEBUGGING_ORIGIN = "http://127.0.0.1:9222";
@@ -46,5 +48,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ChromeMcpConfi
     logBufferSize: parsePositiveInt(env.EZ_CHROME_MCP_LOG_BUFFER_SIZE, 5_000),
     defaultLogLimit: parsePositiveInt(env.EZ_CHROME_MCP_DEFAULT_LOG_LIMIT, 200),
     maxLogLimit: parsePositiveInt(env.EZ_CHROME_MCP_MAX_LOG_LIMIT, 1_000),
+    cdpMaxTotalBufferSize: parsePositiveInt(env.EZ_CHROME_MCP_CDP_MAX_TOTAL_BUFFER_SIZE, 64 * 1024 * 1024),
+    cdpMaxPostDataSize: parsePositiveInt(env.EZ_CHROME_MCP_CDP_MAX_POST_DATA_SIZE, 64 * 1024 * 1024),
   };
 }

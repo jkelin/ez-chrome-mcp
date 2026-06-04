@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { ChromeMcpConfig } from "../config";
 import { createShortIdGenerator } from "../ids";
 import { CdpClient, type EvalOutcome, type ScreenshotOutcome } from "./cdp-client";
@@ -11,11 +12,15 @@ import {
   type DiscoveredTab,
 } from "./endpoints";
 import { launchChromeWithRemoteDebugging } from "./launcher";
-import { LogBuffer, renderGroupedLogs, type LogCursorOptions } from "./log-buffer";
+import {
+  ActivityTimeline,
+  renderGroupedActivity,
+  type ActivityCursorOptions,
+} from "./activity-timeline";
 
 type TabState = {
   tab: DiscoveredTab;
-  logs: LogBuffer;
+  timeline: ActivityTimeline;
   client?: CdpClient;
 };
 
@@ -24,6 +29,23 @@ export type LogsRequest = {
   limit?: number;
   afterLogId?: string;
   beforeLogId?: string;
+};
+
+export type LogDetailRequest = {
+  tabId: string;
+  logId: string;
+  absolute_path?: string;
+};
+
+export type LogDetailResult = {
+  text: string;
+  structuredContent: {
+    tabId: string;
+    logId: string;
+    truncated: boolean;
+    sizeBytes: number;
+    savedTo?: string;
+  };
 };
 
 export type EvalRequest = LogsRequest & {
@@ -88,13 +110,36 @@ export class ChromeDebugService {
     return this.renderLogs(state, request);
   }
 
+  async logDetail(request: LogDetailRequest): Promise<LogDetailResult> {
+    const state = await this.ensureAttached(request.tabId);
+    const entry = state.timeline.getById(request.logId);
+    if (!entry) {
+      throw new Error(`No retained activity entry with ID '${request.logId}' was found for tab '${request.tabId}'.`);
+    }
+
+    const detail = JSON.stringify(entry, null, 2);
+    const savedTo = request.absolute_path ? await writeAbsolutePath(request.absolute_path, detail) : undefined;
+    const { text, truncated, sizeBytes } = truncateUtf8(detail, LOG_DETAIL_MAX_BYTES);
+
+    return {
+      text,
+      structuredContent: {
+        tabId: state.tab.tabId,
+        logId: entry.id,
+        truncated,
+        sizeBytes,
+        savedTo,
+      },
+    };
+  }
+
   async eval(request: EvalRequest): Promise<string> {
     const state = await this.ensureAttached(request.tabId);
     const waitMs = clamp(request.waitMs ?? this.config.defaultQuietMs, 0, this.config.maxQuietMs);
     const outcome = await state.client!.evaluate(request.script);
 
     if (waitMs > 0) {
-      await state.logs.waitForQuiet(waitMs, this.config.hardWaitCapMs);
+      await state.timeline.waitForQuiet(waitMs, this.config.hardWaitCapMs);
     }
 
     return this.renderLogs(state, request, outcome);
@@ -151,6 +196,9 @@ export class ChromeDebugService {
 
   async close(): Promise<void> {
     await Promise.all([...this.tabs.values()].map((state) => state.client?.close()));
+    for (const state of this.tabs.values()) {
+      state.timeline.close();
+    }
   }
 
   private async findReachableBrowserEndpoint(): Promise<BrowserDebuggingEndpoint | undefined> {
@@ -196,7 +244,10 @@ export class ChromeDebugService {
     }
 
     if (!state.client) {
-      state.client = new CdpClient(state.tab.webSocketDebuggerUrl, state.logs);
+      state.client = new CdpClient(state.tab.webSocketDebuggerUrl, state.timeline, {
+        maxTotalBufferSize: this.config.cdpMaxTotalBufferSize,
+        maxPostDataSize: this.config.cdpMaxPostDataSize,
+      });
       await state.client.connect();
     }
 
@@ -214,7 +265,10 @@ export class ChromeDebugService {
     const state = this.upsertTab(tab);
 
     if (!state.client) {
-      state.client = new CdpClient(webSocketDebuggerUrl, state.logs);
+      state.client = new CdpClient(webSocketDebuggerUrl, state.timeline, {
+        maxTotalBufferSize: this.config.cdpMaxTotalBufferSize,
+        maxPostDataSize: this.config.cdpMaxPostDataSize,
+      });
       await state.client.connect();
     }
 
@@ -248,7 +302,7 @@ export class ChromeDebugService {
 
     const state: TabState = {
       tab,
-      logs: new LogBuffer(this.config.logBufferSize),
+      timeline: new ActivityTimeline(this.config.logBufferSize),
     };
     this.tabs.set(tab.tabId, state);
     return state;
@@ -266,13 +320,13 @@ export class ChromeDebugService {
   }
 
   private renderLogs(state: TabState, request: LogsRequest, outcome?: EvalOutcome): string {
-    const options: LogCursorOptions = {
+    const options: ActivityCursorOptions = {
       limit: clamp(request.limit ?? this.config.defaultLogLimit, 1, this.config.maxLogLimit),
       afterLogId: request.afterLogId,
       beforeLogId: request.beforeLogId,
     };
-    const entries = state.logs.snapshot(options);
-    const grouped = state.logs.group(entries);
+    const entries = state.timeline.snapshot(options);
+    const grouped = state.timeline.group(entries);
     const cursorLine = entries.length
       ? `Raw log IDs: \`${entries[0]!.id}\` to \`${entries.at(-1)!.id}\``
       : "Raw log IDs: none";
@@ -289,7 +343,7 @@ export class ChromeDebugService {
       evalSection.trimEnd(),
       `## Logs`,
       ``,
-      renderGroupedLogs(grouped),
+      renderGroupedActivity(grouped),
     ]
       .filter((part) => part.length > 0)
       .join("\n");
@@ -325,5 +379,33 @@ function parseJsonObject(value: string): Record<string, unknown> {
 function base64SizeBytes(value: string): number {
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
   return Math.floor((value.length * 3) / 4) - padding;
+}
+
+const LOG_DETAIL_MAX_BYTES = 64 * 1024;
+
+async function writeAbsolutePath(path: string, contents: string): Promise<string> {
+  if (!isAbsolute(path)) {
+    throw new Error("absolute_path must be an absolute file path.");
+  }
+
+  await Bun.write(path, contents);
+  return path;
+}
+
+function truncateUtf8(value: string, maxBytes: number): { text: string; truncated: boolean; sizeBytes: number } {
+  const encoded = new TextEncoder().encode(value);
+  if (encoded.length <= maxBytes) {
+    return {
+      text: value,
+      truncated: false,
+      sizeBytes: encoded.length,
+    };
+  }
+
+  return {
+    text: new TextDecoder().decode(encoded.slice(0, maxBytes)),
+    truncated: true,
+    sizeBytes: encoded.length,
+  };
 }
 

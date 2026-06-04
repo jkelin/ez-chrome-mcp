@@ -21,6 +21,29 @@ export async function startBrowserHarness(): Promise<BrowserHarness> {
         });
       }
 
+      if (url.pathname === "/api/echo" && request.method === "POST") {
+        const received = await request.json();
+        return Response.json({ ok: true, received });
+      }
+
+      if (url.pathname === "/api/json") {
+        return Response.json({ message: "fixture-json-response", value: 42 });
+      }
+
+      if (url.pathname === "/api/binary") {
+        const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+        return new Response(bytes, {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      }
+
+      if (url.pathname === "/api/large-json") {
+        return Response.json({
+          message: "fixture-large-json",
+          padding: "x".repeat(12_000),
+        });
+      }
+
       return new Response("Not found", { status: 404 });
     },
   });
